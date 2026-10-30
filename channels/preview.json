@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "channel": "preview",
+  "packageName": "com.wispvpn.preview",
+  "signingCertSha256": "c74f66317749335ca16e4e6e8feb5fe1787aa3e2334efbe3130d9ac430266f88",
+  "versionCode": 4000755,
+  "versionName": "2.3.11-wisp.5",
+  "minSdk": 24,
+  "notes": "Обновления Wisp внутри приложения: проверка версии, загрузка и проверка APK перед установкой. Ссылки и настройки сохраняются.",
+  "assets": {
+    "arm64-v8a": {
+      "url": "https://github.com/MadStickers/wisp-updates/releases/download/preview-v2.3.11-wisp.5/WispVPN_Preview_2.3.11-wisp.5_arm64-v8a.apk",
+      "sizeBytes": 41906239,
+      "sha256": "35352597334149a915f33847da33cbcebeeea411213054919b90e988bd7491c2"
+    }
+  }
+}
