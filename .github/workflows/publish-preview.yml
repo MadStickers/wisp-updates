@@ -1,0 +1,36 @@
+name: Publish verified Wisp Preview channel
+on:
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published Preview release tag
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: publish-wisp-preview
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: startsWith(inputs.release_tag || github.event.release.tag_name, 'preview-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          cmdline-tools-version: '14742923'
+          packages: 'build-tools;37.0.0 platform-tools'
+      - name: Test publisher policy
+        run: python3 -m unittest discover -s tools -p test_publish_preview.py
+      - name: Verify signed assets and advance only the Preview channel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WISP_RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+        run: python3 tools/publish_preview.py
