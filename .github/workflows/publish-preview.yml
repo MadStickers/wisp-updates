@@ -28,7 +28,7 @@ jobs:
           cmdline-tools-version: '14742923'
           packages: 'build-tools;37.0.0 platform-tools'
       - name: Test publisher policy
-        run: python3 -m unittest discover -s tools -p test_publish_preview.py
+        run: python3 -m unittest discover -s tools -p 'test_*.py'
       - name: Verify signed assets and advance only the Preview channel
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

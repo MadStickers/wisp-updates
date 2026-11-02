@@ -12,6 +12,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+from wisp_delta import FORMAT, apply as apply_delta
 
 REPO = 'MadStickers/wisp-updates'
 PACKAGE = 'com.wispvpn.preview'
@@ -47,7 +48,52 @@ def validate_manifest(meta, tag):
                 not url.path.startswith(prefix) or '/' in url.path[len(prefix):] or
                 '%' in url.path or not url.path.endswith('.apk') or '/..' in url.path):
             raise ValueError('APK URL must be a versioned asset in this Preview release')
+        deltas = asset.get('deltas', [])
+        if not isinstance(deltas, list) or len(deltas) > 8:
+            raise ValueError('Invalid delta list')
+        for delta in deltas:
+            if delta.get('format') != FORMAT:
+                raise ValueError('Unknown delta format')
+            for key, lo, hi in [('baseVersionCode', 1, meta['versionCode'] - 1),
+                                ('baseSizeBytes', 1, MAX_BYTES), ('sizeBytes', 1, asset['sizeBytes'] - 1)]:
+                if type(delta.get(key)) is not int or not lo <= delta[key] <= hi:
+                    raise ValueError('Invalid delta ' + key)
+            for key in ['baseSha256', 'sha256']:
+                if not re.fullmatch('[0-9a-f]{64}', delta.get(key, '')):
+                    raise ValueError('Invalid delta hash')
+            durl = urllib.parse.urlsplit(delta.get('url', ''))
+            baseurl = urllib.parse.urlsplit(delta.get('baseUrl', ''))
+            if (durl.scheme != 'https' or durl.netloc != 'github.com' or durl.query or durl.fragment or
+                    not durl.path.startswith(prefix) or '/' in durl.path[len(prefix):] or
+                    '%' in durl.path or '/..' in durl.path or not durl.path.endswith('.wdelta')):
+                raise ValueError('Delta URL must belong to this release')
+            baseprefix = '/' + REPO + '/releases/download/'
+            parts = baseurl.path.removeprefix(baseprefix).split('/')
+            if (baseurl.scheme != 'https' or baseurl.netloc != 'github.com' or baseurl.query or baseurl.fragment or
+                    not baseurl.path.startswith(baseprefix) or len(parts) != 2 or not all(parts) or
+                    '%' in baseurl.path or '/..' in baseurl.path or not parts[1].endswith('.apk')):
+                raise ValueError('Base URL must be a versioned Wisp release APK')
     return meta
+
+
+def validate_delta(meta, abi, delta, patch, base, target, sdk):
+    if len(patch) != delta['sizeBytes'] or hashlib.sha256(patch).hexdigest() != delta['sha256']:
+        raise ValueError('Delta checksum/size mismatch')
+    if len(base) != delta['baseSizeBytes'] or hashlib.sha256(base).hexdigest() != delta['baseSha256']:
+        raise ValueError('Delta base checksum/size mismatch')
+    if apply_delta(base, patch) != target:
+        raise ValueError('Delta does not reproduce the signed release APK')
+    with tempfile.TemporaryDirectory() as folder:
+        apk = Path(folder) / 'base.apk'
+        apk.write_bytes(base)
+        badging = subprocess.check_output([str(Path(sdk) / 'build-tools/37.0.0/aapt'), 'dump', 'badging', str(apk)], text=True)
+        version = re.search(r"^package: name='[^']+' versionCode='\d+' versionName='([^']+)'", badging, re.M)
+        minimum = re.search(r"^sdkVersion:'(\d+)'", badging, re.M)
+        if not version or not minimum:
+            raise ValueError('Invalid base APK')
+        base_meta = dict(meta, versionCode=delta['baseVersionCode'], versionName=version[1], minSdk=int(minimum[1]),
+                         assets={abi: dict(sizeBytes=len(base), sha256=delta['baseSha256'])})
+        validate_apk(base_meta, abi, apk, sdk)
 
 
 def validate_apk(meta, abi, apk, sdk):
@@ -107,6 +153,13 @@ def publish(tag, sdk):
             apk = Path(directory) / (abi + '.apk')
             apk.write_bytes(public_bytes(entry['url'], entry['sizeBytes']))
             validate_apk(meta, abi, apk, sdk)
+            for delta in entry.get('deltas', []):
+                name = urllib.parse.urlsplit(delta['url']).path.rsplit('/', 1)[-1]
+                if name not in assets or assets[name]['browser_download_url'] != delta['url']:
+                    raise ValueError('Delta is not attached to this release')
+                patch = public_bytes(delta['url'], delta['sizeBytes'])
+                base = public_bytes(delta['baseUrl'], delta['baseSizeBytes'])
+                validate_delta(meta, abi, delta, patch, base, apk.read_bytes(), sdk)
     path = 'contents/channels/preview.json'
     current = None
     try:

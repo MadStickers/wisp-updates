@@ -93,6 +93,28 @@ class PreviewPublisherTest(unittest.TestCase):
         self.assertEqual(writes[0]['sha'], 'existing-file')
         self.assertEqual(json.loads(base64.b64decode(writes[0]['content'])), manifest())
 
+    def test_delta_requires_older_exact_base_and_smaller_release_owned_patch(self):
+        data = manifest()
+        asset = data['assets']['arm64-v8a']
+        asset['sizeBytes'] = 1000
+        delta = dict(format='wisp-zip-delta-v1', baseVersionCode=4000754, baseSizeBytes=1000,
+                     baseSha256='b' * 64, baseUrl=URL.replace(TAG, 'preview-v4'),
+                     url=URL.replace('.apk', '.wdelta'), sha256='c' * 64, sizeBytes=100)
+        asset['deltas'] = [delta]
+        publisher.validate_manifest(data, TAG)
+        for key, bad in [('format', 'unknown'), ('sizeBytes', 1000), ('baseVersionCode', 4000755),
+                         ('baseSha256', 'bad'), ('url', delta['url'].replace(TAG, 'other')),
+                         ('baseUrl', URL.replace('github.com', 'evil.test'))]:
+            other = copy.deepcopy(data)
+            other['assets']['arm64-v8a']['deltas'][0][key] = bad
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                publisher.validate_manifest(other, TAG)
+
+    def test_bad_patch_never_passes_publisher_replay(self):
+        delta = dict(sizeBytes=3, sha256='c' * 64, baseSizeBytes=3, baseSha256='b' * 64)
+        with self.assertRaises(ValueError):
+            publisher.validate_delta(manifest(), 'arm64-v8a', delta, b'bad', b'old', b'new', '/unused')
+
 
 if __name__ == '__main__':
     unittest.main()
